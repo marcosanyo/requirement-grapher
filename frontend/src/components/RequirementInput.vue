@@ -1,28 +1,38 @@
-# src/components/RequirementInput.vue
+<!-- frontend/src/components/RequirementInput.vue -->
 <template>
   <v-card class="mb-4">
-    <v-card-title>要件・制約の入力</v-card-title>
+    <v-card-title class="d-flex justify-space-between align-center">
+      要件入力
+      <v-btn icon @click="clearInput" :disabled="!text">
+        <v-icon>mdi-delete</v-icon>
+      </v-btn>
+    </v-card-title>
     <v-card-text>
       <v-textarea
-        v-model="inputText"
-        label="要件・制約を入力してください"
-        hint="自然言語で要件や制約を記述してください"
+        v-model="text"
+        label="要件を入力してください"
+        hint="テキストから要件、制約、暗黙知を自動抽出します"
+        persistent-hint
         rows="4"
-        :loading="loading"
-        :disabled="loading"
+        :error="!!store.error"
+        :error-messages="store.error"
       ></v-textarea>
     </v-card-text>
     <v-card-actions>
       <v-spacer></v-spacer>
       <v-btn
         color="primary"
-        :loading="loading"
-        :disabled="!inputText.trim()"
-        @click="analyzeRequirements"
+        :loading="store.loading"
+        :disabled="!text || store.loading"
+        @click="handleExtractRequirements"
       >
-        分析
+        分析開始
       </v-btn>
     </v-card-actions>
+
+    <v-snackbar v-model="showSnackbar" :color="snackbarColor" timeout="3000">
+      {{ snackbarText }}
+    </v-snackbar>
   </v-card>
 </template>
 
@@ -31,47 +41,34 @@ import { ref } from "vue";
 import { useRequirementStore } from "@/stores/requirement";
 
 const store = useRequirementStore();
-const inputText = ref("");
-const loading = ref(false);
+const text = ref("");
+const showSnackbar = ref(false);
+const snackbarText = ref("");
+const snackbarColor = ref("success");
 
-async function analyzeRequirements() {
-  if (!inputText.value.trim()) return;
-
-  loading.value = true;
-  try {
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ text: inputText.value }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Analysis failed");
-    }
-
-    const result = await response.json();
-
-    // 既存のノードとリンクをクリア
-    store.$reset();
-
-    // 新しいノードとリンクを追加
-    result.nodes.forEach((node) => {
-      store.addRequirement(node);
-    });
-
-    result.links.forEach((link) => {
-      store.addLink(link.source, link.target, link.label);
-    });
-
-    // 入力をクリア
-    inputText.value = "";
-  } catch (error) {
-    console.error("Error analyzing requirements:", error);
-    // エラー処理を追加する場合はここに実装
-  } finally {
-    loading.value = false;
+const handleExtractRequirements = async () => {
+  if (!text.value.trim()) {
+    snackbarText.value = "テキストを入力してください";
+    snackbarColor.value = "warning";
+    showSnackbar.value = true;
+    return;
   }
-}
+
+  try {
+    await store.extractRequirements(text.value);
+    snackbarText.value = "要件の抽出が完了しました";
+    snackbarColor.value = "success";
+    showSnackbar.value = true;
+  } catch (error) {
+    console.error("Error extracting requirements:", error);
+    snackbarText.value = store.error || "要件の抽出に失敗しました";
+    snackbarColor.value = "error";
+    showSnackbar.value = true;
+  }
+};
+
+const clearInput = () => {
+  text.value = "";
+  store.clearGraph();
+};
 </script>

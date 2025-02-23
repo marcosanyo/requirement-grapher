@@ -1,6 +1,10 @@
-<!-- src/App.vue -->
+<!-- frontend/src/App.vue -->
 <template>
   <v-app>
+    <v-app-bar color="primary" app elevation="1">
+      <v-app-bar-title>要件・制約分析支援システム</v-app-bar-title>
+    </v-app-bar>
+
     <v-main>
       <v-container fluid class="pa-4">
         <requirement-input />

@@ -1,6 +1,6 @@
-<!-- src/components/RequirementGraph.vue -->
+<!-- frontend/src/components/RequirementGraph.vue -->
 <template>
-  <v-card height="100%">
+  <v-card height="600">
     <v-card-title class="d-flex justify-space-between align-center">
       要件・制約関係グラフ
       <v-btn
@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import * as d3 from "d3";
 import { useRequirementStore } from "@/stores/requirement";
 import { storeToRefs } from "pinia";
@@ -64,28 +64,13 @@ const initGraph = () => {
   const width = containerRect.width;
   const height = containerRect.height;
 
-  // Create SVG with explicit dimensions
+  // Create SVG
   const svg = d3
     .select(container.value)
     .append("svg")
     .attr("width", "100%")
     .attr("height", "100%")
-    .attr("viewBox", [0, 0, width, height])
-    .style("display", "block");
-
-  // 矢印マーカーの定義
-  const defs = svg.append("defs");
-  defs
-    .append("marker")
-    .attr("id", "arrowhead")
-    .attr("refX", 8)
-    .attr("refY", 2)
-    .attr("markerWidth", 4)
-    .attr("markerHeight", 4)
-    .attr("orient", "auto")
-    .append("path")
-    .attr("d", "M 0,0 V 4 L4,2 Z")
-    .attr("fill", "#999");
+    .attr("viewBox", [0, 0, width, height]);
 
   // Add zoom behavior
   const g = svg.append("g");
@@ -125,7 +110,7 @@ const initGraph = () => {
     .attr("stroke", "#999")
     .attr("stroke-width", 2)
     .attr("stroke-opacity", 0.6)
-    .attr("marker-end", "url(#arrowhead)"); // 矢印マーカーを追加
+    .attr("marker-end", "url(#arrowhead)");
 
   link
     .append("text")
@@ -212,14 +197,12 @@ const initGraph = () => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
         const length = Math.sqrt(dx * dx + dy * dy);
-        // 終点を矩形の手前に調整
         return d.target.x - (dx / length) * 30;
       })
       .attr("y2", (d) => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
         const length = Math.sqrt(dx * dx + dy * dy);
-        // 終点を矩形の手前に調整
         return d.target.y - (dy / length) * 30;
       });
 
@@ -232,10 +215,19 @@ const initGraph = () => {
   });
 };
 
+// Watch for changes in nodes and links
+watch(
+  [nodes, links],
+  () => {
+    if (nodes.value.length > 0) {
+      initGraph();
+    }
+  },
+  { deep: true }
+);
+
 onMounted(() => {
-  setTimeout(() => {
-    initGraph();
-  }, 100);
+  initGraph();
 });
 
 onUnmounted(() => {
@@ -248,7 +240,6 @@ onUnmounted(() => {
 <style scoped>
 .graph-container {
   width: 100%;
-  min-height: 600px;
   background-color: #fafafa;
   border-radius: 4px;
   position: relative;
