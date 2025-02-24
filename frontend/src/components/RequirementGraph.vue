@@ -38,6 +38,7 @@ watch(
   { immediate: true }
 );
 
+// グラフの表示をリセットする関数
 const resetView = () => {
   if (!svg || !container.value) return;
 
@@ -45,8 +46,38 @@ const resetView = () => {
   const width = containerRect.width;
   const height = containerRect.height;
 
+  // 前提ノードを探す
+  const normalNodes = JSON.parse(JSON.stringify(nodes.value));
+  const implicitNodes = normalNodes.filter((node) => node.type === "implicit");
+  let centerX = width / 2;
+  let centerY = height / 2;
+
+  // 前提ノードがある場合は、その中心を計算
+  if (implicitNodes.length > 0) {
+    let implicitCenterX = 0;
+    let implicitCenterY = 0;
+
+    implicitNodes.forEach((node) => {
+      if (node.x && node.y) {
+        implicitCenterX += node.x;
+        implicitCenterY += node.y;
+      }
+    });
+
+    if (implicitNodes.length > 0) {
+      implicitCenterX /= implicitNodes.length;
+      implicitCenterY /= implicitNodes.length;
+
+      // 実際に値が計算できた場合のみ中心を更新
+      if (!isNaN(implicitCenterX) && !isNaN(implicitCenterY)) {
+        centerX = implicitCenterX;
+        centerY = implicitCenterY;
+      }
+    }
+  }
+
   const initialTransform = d3.zoomIdentity
-    .translate(width / 2, height / 2)
+    .translate(width / 2 - centerX, height / 2 - centerY)
     .scale(0.8);
 
   svg.transition().duration(750).call(zoom.transform, initialTransform);
@@ -125,6 +156,8 @@ const getNodeDelay = (d, index, implicitNodesCount, constraintNodesCount) => {
   return (implicitNodesCount + constraintNodesCount) * 150 + index * 200;
 };
 
+// 波紋エフェクトは削除
+
 const initGraph = () => {
   if (!container.value || !nodes.value || nodes.value.length === 0) return;
 
@@ -195,12 +228,6 @@ const initGraph = () => {
     // ダブルクリックによるズームを無効化
     .on("dblclick.zoom", null);
 
-  // 中央に配置されるように初期transform
-  const initialTransform = d3.zoomIdentity
-    .translate(width / 2, height / 2)
-    .scale(0.8);
-  svg.call(zoom.transform, initialTransform);
-
   // 前処理: ノードの初期配置を整理
   const centerX = width / 2;
   const centerY = height / 2;
@@ -208,8 +235,9 @@ const initGraph = () => {
   // まず前提ノード（implicitNodes）を中央付近に配置
   if (implicitNodes.length > 0) {
     // 前提ノードが複数ある場合は中央付近に円形に配置
+    const implicitRadius = 80; // 前提ノードの配置半径（小さめに）
+
     if (implicitNodes.length > 1) {
-      const implicitRadius = 80; // 前提ノードの配置半径（小さめに）
       implicitNodes.forEach((node, i) => {
         const angle = (i / implicitNodes.length) * 2 * Math.PI;
         node.x = centerX + implicitRadius * Math.cos(angle);
@@ -223,7 +251,7 @@ const initGraph = () => {
   }
 
   // 制約ノードは前提ノードの周りの中間距離に配置
-  const constraintRadius = 150; // 制約ノードの配置半径（中間）
+  const constraintRadius = 180; // 制約ノードの配置半径（中間）
   constraintNodes.forEach((node, i) => {
     const angle = (i / Math.max(constraintNodes.length, 1)) * 2 * Math.PI;
     node.x = centerX + constraintRadius * Math.cos(angle);
@@ -231,85 +259,12 @@ const initGraph = () => {
   });
 
   // 要件ノードは最も外側に配置
-  const requirementRadius = 220; // 要件ノードの配置半径（大きめ）
+  const requirementRadius = 280; // 要件ノードの配置半径（大きめ）
   requirementNodes.forEach((node, i) => {
     const angle = (i / Math.max(requirementNodes.length, 1)) * 2 * Math.PI;
     node.x = centerX + requirementRadius * Math.cos(angle);
     node.y = centerY + requirementRadius * Math.sin(angle);
   });
-
-  // アニメーション開始のエフェクト
-  // 最初のエフェクトで全体的な波紋を発生（常に中央から）
-  svg
-    .append("circle")
-    .attr("cx", centerX)
-    .attr("cy", centerY)
-    .attr("r", 5)
-    .attr("fill", "#9e9e9e")
-    .style("opacity", 0.7)
-    .transition()
-    .duration(1200)
-    .attr("r", 250)
-    .style("opacity", 0)
-    .remove();
-
-  // 前提ノードから順番に小さな波紋を発生（ノードタイプごとに色を変える）
-  setTimeout(() => {
-    // 前提ノード（緑）
-    implicitNodes.forEach((node, i) => {
-      setTimeout(() => {
-        svg
-          .append("circle")
-          .attr("cx", node.x)
-          .attr("cy", node.y)
-          .attr("r", 3)
-          .attr("fill", "#4caf50")
-          .transition()
-          .duration(800)
-          .attr("r", 70)
-          .style("opacity", 0)
-          .remove();
-      }, i * 100);
-    });
-
-    // 制約ノード（紫）
-    setTimeout(() => {
-      constraintNodes.forEach((node, i) => {
-        setTimeout(() => {
-          svg
-            .append("circle")
-            .attr("cx", node.x)
-            .attr("cy", node.y)
-            .attr("r", 3)
-            .attr("fill", "#9c27b0")
-            .transition()
-            .duration(800)
-            .attr("r", 70)
-            .style("opacity", 0)
-            .remove();
-        }, i * 100);
-      });
-    }, implicitNodes.length * 100 + 200);
-
-    // 要件ノード（青）
-    setTimeout(() => {
-      requirementNodes.forEach((node, i) => {
-        setTimeout(() => {
-          svg
-            .append("circle")
-            .attr("cx", node.x)
-            .attr("cy", node.y)
-            .attr("r", 3)
-            .attr("fill", "#2196f3")
-            .transition()
-            .duration(800)
-            .attr("r", 70)
-            .style("opacity", 0)
-            .remove();
-        }, i * 100);
-      });
-    }, (implicitNodes.length + constraintNodes.length) * 100 + 400);
-  }, 300);
 
   // シミュレーションの初期設定
   simulation = d3
@@ -321,21 +276,20 @@ const initGraph = () => {
       d3
         .forceLink(normalLinks)
         .id((d) => d.id)
-        .distance(300)
+        .distance(200) // リンク長を短めに調整
     )
-    .force("charge", d3.forceManyBody().strength(-4000))
+    .force("charge", d3.forceManyBody().strength(-3000))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(120))
+    .force("collision", d3.forceCollide().radius(100))
     .force("x", d3.forceX(width / 2).strength(0.1))
     .force("y", d3.forceY(height / 2).strength(0.1))
     .alphaDecay(0.02); // アニメーションをやや長く続かせる (デフォルトは0.0228)
 
-  // シミュレーションの初期状態設定
-  // 前提ノードは少し固定して安定させる
+  // 前提ノードを中心に引っ張る力を追加
   simulation.force(
     "fixImplicit",
     d3.forceRadial(0, width / 2, height / 2).strength((d) => {
-      return d.type === "implicit" ? 0.5 : 0.01; // 前提ノードは中心に引っ張る力を強くする
+      return d.type === "implicit" ? 0.8 : 0.01; // 前提ノードは中心に引っ張る力を強くする
     })
   );
 
@@ -613,12 +567,17 @@ const initGraph = () => {
     });
   });
 
+  // 波紋エフェクトを削除
+
   // 一定時間後にシミュレーションを徐々に落ち着かせる
   setTimeout(() => {
     simulation.alphaTarget(0).alphaDecay(0.05);
-    // しばらくしたら前提ノードの固定も弱める
-    simulation.force("fixImplicit").strength(0.01);
-  }, 3000 + normalNodes.length * 200); // ノード数に応じて調整
+  }, 2500);
+
+  // 初期ビューをセット（前提ノードを中心に表示）
+  setTimeout(() => {
+    resetView();
+  }, 300);
 };
 
 // ノードとリンクの変更を監視
