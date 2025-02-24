@@ -358,10 +358,12 @@ const initGraph = () => {
     })
   );
 
+  // レイヤーの順序を制御するためにコンテナを分割
+  const linksGroup = g.append("g").attr("class", "links");
+  const nodesGroup = g.append("g").attr("class", "nodes");
+
   // リンクの描画（アニメーション付き）
-  const link = g
-    .append("g")
-    .attr("class", "links")
+  const link = linksGroup
     .selectAll("g")
     .data(normalLinks)
     .join("g")
@@ -383,9 +385,7 @@ const initGraph = () => {
     .text((d) => d.label);
 
   // ノードの描画（アニメーション付き）
-  const node = g
-    .append("g")
-    .attr("class", "nodes")
+  const node = nodesGroup
     .selectAll("g")
     .data(normalNodes)
     .join("g")
@@ -405,11 +405,31 @@ const initGraph = () => {
       showTooltip(event, d);
       // マウスオーバー時に円を少し大きくする
       d3.select(this).transition().duration(300).attr("r", 65);
+
+      // 関連するリンクを強調表示
+      linksGroup
+        .selectAll("line")
+        .filter((link) => link.source.id === d.id || link.target.id === d.id)
+        .transition()
+        .duration(300)
+        .attr("stroke", "#ff9800")
+        .attr("stroke-width", 3)
+        .attr("stroke-opacity", 1)
+        .attr("z-index", 1000);
     })
     .on("mouseout", function () {
       hideTooltip();
       // マウスアウト時に元のサイズに戻す
       d3.select(this).transition().duration(300).attr("r", 60);
+
+      // リンクの強調表示を解除
+      linksGroup
+        .selectAll("line")
+        .transition()
+        .duration(300)
+        .attr("stroke", "#999")
+        .attr("stroke-width", 2)
+        .attr("stroke-opacity", 0.6);
     })
     // アニメーションで円を拡大
     .transition()
@@ -699,6 +719,8 @@ onUnmounted(() => {
 
 .links line {
   stroke-opacity: 0.6;
+  pointer-events: stroke;
+  z-index: 1;
 }
 
 .nodes circle {
