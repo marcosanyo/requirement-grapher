@@ -46,40 +46,84 @@ const resetView = () => {
   const width = containerRect.width;
   const height = containerRect.height;
 
-  // 前提ノードを探す
+  console.log("Resetting view, container size:", width, height);
+
+  // 全ノードを取得
   const normalNodes = JSON.parse(JSON.stringify(nodes.value));
+
+  // 優先的に前提ノードを中心に
   const implicitNodes = normalNodes.filter((node) => node.type === "implicit");
+
+  // 有効なノード（座標が設定済み）を取得
+  const validNodes = normalNodes.filter(
+    (node) =>
+      node.x !== undefined &&
+      node.y !== undefined &&
+      !isNaN(node.x) &&
+      !isNaN(node.y)
+  );
+
+  console.log("Valid nodes count:", validNodes.length);
+  console.log("Implicit nodes count:", implicitNodes.length);
+
+  // カメラ中心位置の計算
   let centerX = width / 2;
   let centerY = height / 2;
 
-  // 前提ノードがある場合は、その中心を計算
-  if (implicitNodes.length > 0) {
+  // 前提ノードの有効なものだけを取得
+  const validImplicitNodes = implicitNodes.filter(
+    (node) =>
+      node.x !== undefined &&
+      node.y !== undefined &&
+      !isNaN(node.x) &&
+      !isNaN(node.y)
+  );
+
+  // 前提ノードがあればそれを中心に
+  if (validImplicitNodes.length > 0) {
     let implicitCenterX = 0;
     let implicitCenterY = 0;
 
-    implicitNodes.forEach((node) => {
-      if (node.x && node.y) {
-        implicitCenterX += node.x;
-        implicitCenterY += node.y;
-      }
+    validImplicitNodes.forEach((node) => {
+      implicitCenterX += node.x;
+      implicitCenterY += node.y;
     });
 
-    if (implicitNodes.length > 0) {
-      implicitCenterX /= implicitNodes.length;
-      implicitCenterY /= implicitNodes.length;
+    implicitCenterX /= validImplicitNodes.length;
+    implicitCenterY /= validImplicitNodes.length;
 
-      // 実際に値が計算できた場合のみ中心を更新
-      if (!isNaN(implicitCenterX) && !isNaN(implicitCenterY)) {
-        centerX = implicitCenterX;
-        centerY = implicitCenterY;
-      }
-    }
+    console.log("Implicit nodes center:", implicitCenterX, implicitCenterY);
+
+    centerX = implicitCenterX;
+    centerY = implicitCenterY;
+  }
+  // 前提ノードがなければ、全ノードの中心を計算
+  else if (validNodes.length > 0) {
+    let allNodesX = 0;
+    let allNodesY = 0;
+
+    validNodes.forEach((node) => {
+      allNodesX += node.x;
+      allNodesY += node.y;
+    });
+
+    allNodesX /= validNodes.length;
+    allNodesY /= validNodes.length;
+
+    console.log("All nodes center:", allNodesX, allNodesY);
+
+    centerX = allNodesX;
+    centerY = allNodesY;
   }
 
+  console.log("Final center position:", centerX, centerY);
+
+  // 中心位置とズームスケールを設定
   const initialTransform = d3.zoomIdentity
     .translate(width / 2 - centerX, height / 2 - centerY)
     .scale(0.8);
 
+  // アニメーションでビューを移動
   svg.transition().duration(750).call(zoom.transform, initialTransform);
 };
 
@@ -156,8 +200,6 @@ const getNodeDelay = (d, index, implicitNodesCount, constraintNodesCount) => {
   return (implicitNodesCount + constraintNodesCount) * 150 + index * 200;
 };
 
-// 波紋エフェクトは削除
-
 const initGraph = () => {
   if (!container.value || !nodes.value || nodes.value.length === 0) return;
 
@@ -232,6 +274,22 @@ const initGraph = () => {
   const centerX = width / 2;
   const centerY = height / 2;
 
+  console.log("Container center:", centerX, centerY);
+
+  // すべてのノードに初期座標を設定（無効な値を避けるため）
+  normalNodes.forEach((node) => {
+    // 既に有効な座標がある場合はそのまま
+    if (
+      node.x === undefined ||
+      node.y === undefined ||
+      isNaN(node.x) ||
+      isNaN(node.y)
+    ) {
+      node.x = centerX;
+      node.y = centerY;
+    }
+  });
+
   // まず前提ノード（implicitNodes）を中央付近に配置
   if (implicitNodes.length > 0) {
     // 前提ノードが複数ある場合は中央付近に円形に配置
@@ -266,6 +324,12 @@ const initGraph = () => {
     node.y = centerY + requirementRadius * Math.sin(angle);
   });
 
+  // デバッグ用: ノードの位置をログ出力
+  console.log("Initial node positions:");
+  normalNodes.forEach((node) => {
+    console.log(`${node.id} (${node.type}): x=${node.x}, y=${node.y}`);
+  });
+
   // シミュレーションの初期設定
   simulation = d3
     .forceSimulation(normalNodes)
@@ -276,20 +340,21 @@ const initGraph = () => {
       d3
         .forceLink(normalLinks)
         .id((d) => d.id)
-        .distance(200) // リンク長を短めに調整
+        .distance(200) // リンク長を設定
     )
-    .force("charge", d3.forceManyBody().strength(-3000))
-    .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(100))
-    .force("x", d3.forceX(width / 2).strength(0.1))
-    .force("y", d3.forceY(height / 2).strength(0.1))
-    .alphaDecay(0.02); // アニメーションをやや長く続かせる (デフォルトは0.0228)
+    .force("charge", d3.forceManyBody().strength(-2000)) // ノード間の反発力
+    .force("center", d3.forceCenter(width / 2, height / 2)) // 中心に引っ張る力
+    .force("collision", d3.forceCollide().radius(80)) // ノード同士の衝突回避
+    .force("x", d3.forceX(width / 2).strength(0.1)) // X方向の力
+    .force("y", d3.forceY(height / 2).strength(0.1)) // Y方向の力
+    .alphaDecay(0.02); // アニメーションをやや長く続かせる
 
   // 前提ノードを中心に引っ張る力を追加
   simulation.force(
     "fixImplicit",
     d3.forceRadial(0, width / 2, height / 2).strength((d) => {
-      return d.type === "implicit" ? 0.8 : 0.01; // 前提ノードは中心に引っ張る力を強くする
+      // 前提ノードは中心に強く引っ張る
+      return d.type === "implicit" ? 1.0 : 0.01;
     })
   );
 
@@ -567,17 +632,22 @@ const initGraph = () => {
     });
   });
 
-  // 波紋エフェクトを削除
-
   // 一定時間後にシミュレーションを徐々に落ち着かせる
   setTimeout(() => {
     simulation.alphaTarget(0).alphaDecay(0.05);
   }, 2500);
 
-  // 初期ビューをセット（前提ノードを中心に表示）
+  // シミュレーションの安定後に初期ビューをセット
   setTimeout(() => {
+    // シミュレーションが安定した位置で視点をリセット
+    simulation.alpha(0.1); // シミュレーションを少し進める
+
+    // 位置を一度更新
+    simulation.tick(10); // 10ステップ強制的に進める
+
+    console.log("Setting initial view after simulation stabilization");
     resetView();
-  }, 300);
+  }, 1000);
 };
 
 // ノードとリンクの変更を監視
