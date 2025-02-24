@@ -1,14 +1,10 @@
-<!-- frontend/src/components/RequirementGraph.vue -->
+// frontend/src/components/RequirementGraph.vue
 <template>
   <v-card height="600">
     <v-card-title class="d-flex justify-space-between align-center">
       要件・制約関係グラフ
-      <v-btn
-        :color="isDragging ? 'primary' : undefined"
-        icon
-        @click="toggleDrag"
-      >
-        <v-icon>mdi-drag</v-icon>
+      <v-btn color="primary" icon @click="resetView">
+        <v-icon>mdi-restore</v-icon>
       </v-btn>
     </v-card-title>
     <v-card-text class="fill-height">
@@ -25,20 +21,34 @@ import { storeToRefs } from "pinia";
 
 const store = useRequirementStore();
 const { nodes, links } = storeToRefs(store);
-
 const container = ref(null);
-const isDragging = ref(true);
 let simulation = null;
+let svg = null;
+let g = null;
+let zoom = null; // zoomをトップレベルで定義
 
-const toggleDrag = () => {
-  isDragging.value = !isDragging.value;
-  if (simulation) {
-    if (isDragging.value) {
-      simulation.alpha(0.3).restart();
-    } else {
-      simulation.alpha(0);
-    }
-  }
+// デバッグ用
+watch(
+  [nodes, links],
+  () => {
+    console.log("Nodes:", nodes.value);
+    console.log("Links:", links.value);
+  },
+  { immediate: true }
+);
+
+const resetView = () => {
+  if (!svg || !container.value) return;
+
+  const containerRect = container.value.getBoundingClientRect();
+  const width = containerRect.width;
+  const height = containerRect.height;
+
+  const initialTransform = d3.zoomIdentity
+    .translate(width / 2, height / 2)
+    .scale(0.8);
+
+  svg.transition().duration(750).call(zoom.transform, initialTransform);
 };
 
 const getNodeColor = (type) => {
@@ -55,25 +65,49 @@ const getNodeColor = (type) => {
 };
 
 const initGraph = () => {
-  if (!container.value) return;
+  if (!container.value || !nodes.value || nodes.value.length === 0) return;
 
-  // Clear any existing SVG
-  d3.select(container.value).selectAll("*").remove();
+  // Proxyオブジェクトを通常の配列に変換
+  const normalNodes = JSON.parse(JSON.stringify(nodes.value));
+  const normalLinks = JSON.parse(JSON.stringify(links.value));
 
+  console.log("Initializing graph with nodes:", normalNodes);
+
+  // コンテナのサイズを取得
   const containerRect = container.value.getBoundingClientRect();
   const width = containerRect.width;
   const height = containerRect.height;
 
-  // Create SVG
-  const svg = d3
+  // 既存のSVGをクリア
+  d3.select(container.value).selectAll("*").remove();
+
+  // SVGを作成
+  svg = d3
     .select(container.value)
     .append("svg")
     .attr("width", "100%")
     .attr("height", "100%")
     .attr("viewBox", [0, 0, width, height]);
 
-  // Add zoom behavior
-  const g = svg.append("g");
+  // 矢印マーカーの定義
+  svg
+    .append("defs")
+    .append("marker")
+    .attr("id", "arrowhead")
+    .attr("viewBox", "0 -5 10 10")
+    .attr("refX", 20)
+    .attr("refY", 0)
+    .attr("markerWidth", 8)
+    .attr("markerHeight", 8)
+    .attr("orient", "auto")
+    .append("path")
+    .attr("d", "M0,-5L10,0L0,5")
+    .attr("fill", "#999");
+
+  // グラフのメインコンテナ
+  g = svg.append("g");
+
+  // ズーム機能
   const zoom = d3
     .zoom()
     .scaleExtent([0.1, 4])
@@ -81,28 +115,44 @@ const initGraph = () => {
       g.attr("transform", event.transform);
     });
 
-  svg.call(zoom);
+  svg
+    .call(zoom)
+    .call(
+      zoom.transform,
+      d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8)
+    )
+    // ダブルクリックによるズームを無効化
+    .on("dblclick.zoom", null);
 
-  // Initialize simulation
+  // 中央に配置されるように初期transform
+  const initialTransform = d3.zoomIdentity
+    .translate(width / 2, height / 2)
+    .scale(1);
+  svg.call(zoom.transform, initialTransform);
+
+  // フォースシミュレーションの設定
   simulation = d3
-    .forceSimulation(nodes.value)
+    .forceSimulation(normalNodes)
     .force(
       "link",
       d3
-        .forceLink(links.value)
+        .forceLink(normalLinks)
         .id((d) => d.id)
-        .distance(150)
+        .distance(200)
     )
-    .force("charge", d3.forceManyBody().strength(-800))
+    .force("charge", d3.forceManyBody().strength(-2000))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(70));
+    .force("collision", d3.forceCollide().radius(100))
+    .force("x", d3.forceX(width / 2).strength(0.1))
+    .force("y", d3.forceY(height / 2).strength(0.1))
+    .alphaDecay(0.05);
 
-  // Draw links
+  // リンクの描画
   const link = g
     .append("g")
     .attr("class", "links")
     .selectAll("g")
-    .data(links.value)
+    .data(normalLinks)
     .join("g");
 
   link
@@ -120,34 +170,28 @@ const initGraph = () => {
     .style("font-size", "12px")
     .text((d) => d.label);
 
-  // Draw nodes
+  // ノードの描画
   const node = g
     .append("g")
     .attr("class", "nodes")
     .selectAll("g")
-    .data(nodes.value)
-    .join("g")
-    .call(
-      d3
-        .drag()
-        .on("start", dragStarted)
-        .on("drag", dragged)
-        .on("end", dragEnded)
-    );
+    .data(normalNodes)
+    .join("g");
 
-  // Background rectangles
+  // ノードの背景四角形
   node
     .append("rect")
-    .attr("width", 120)
+    .attr("width", 160)
     .attr("height", 60)
     .attr("rx", 8)
-    .attr("x", -60)
+    .attr("x", -80)
     .attr("y", -30)
     .attr("fill", (d) => getNodeColor(d.type).bg)
     .attr("stroke", (d) => getNodeColor(d.type).border)
-    .attr("stroke-width", 2);
+    .attr("stroke-width", 2)
+    .style("cursor", "default");
 
-  // Node ID text
+  // ノードID
   node
     .append("text")
     .attr("dy", -5)
@@ -157,37 +201,46 @@ const initGraph = () => {
     .style("font-size", "14px")
     .text((d) => d.id);
 
-  // Node description text
+  // ノードテキスト
   node
     .append("text")
     .attr("dy", 15)
     .attr("text-anchor", "middle")
     .attr("fill", (d) => getNodeColor(d.type).text)
     .style("font-size", "12px")
-    .text((d) => d.text);
+    .each(function (d) {
+      // テキストを複数行に分割
+      const text = d3.select(this);
+      const words = d.text.split(/\s+/);
+      let line = [];
+      let lineNumber = 0;
+      const lineHeight = 1.2;
+      const maxWidth = 150;
 
-  // Drag functions
-  function dragStarted(event) {
-    if (!isDragging.value) return;
-    if (!event.active) simulation.alphaTarget(0.3).restart();
-    event.subject.fx = event.subject.x;
-    event.subject.fy = event.subject.y;
-  }
+      words.forEach((word) => {
+        line.push(word);
+        const testWidth = this.getComputedTextLength();
 
-  function dragged(event) {
-    if (!isDragging.value) return;
-    event.subject.fx = event.x;
-    event.subject.fy = event.y;
-  }
+        if (testWidth > maxWidth && line.length > 1) {
+          line.pop();
+          text
+            .append("tspan")
+            .attr("x", 0)
+            .attr("dy", `${lineNumber === 0 ? 0 : lineHeight}em`)
+            .text(line.join(" "));
+          line = [word];
+          lineNumber++;
+        }
+      });
 
-  function dragEnded(event) {
-    if (!isDragging.value) return;
-    if (!event.active) simulation.alphaTarget(0);
-    event.subject.fx = null;
-    event.subject.fy = null;
-  }
+      text
+        .append("tspan")
+        .attr("x", 0)
+        .attr("dy", `${lineNumber === 0 ? 0 : lineHeight}em`)
+        .text(line.join(" "));
+    });
 
-  // Update simulation
+  // シミュレーションの更新処理
   simulation.on("tick", () => {
     link
       .select("line")
@@ -197,13 +250,13 @@ const initGraph = () => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
         const length = Math.sqrt(dx * dx + dy * dy);
-        return d.target.x - (dx / length) * 30;
+        return d.target.x - (dx / length) * 40;
       })
       .attr("y2", (d) => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
         const length = Math.sqrt(dx * dx + dy * dy);
-        return d.target.y - (dy / length) * 30;
+        return d.target.y - (dy / length) * 40;
       });
 
     link
@@ -215,7 +268,7 @@ const initGraph = () => {
   });
 };
 
-// Watch for changes in nodes and links
+// ノードとリンクの変更を監視
 watch(
   [nodes, links],
   () => {
@@ -226,14 +279,17 @@ watch(
   { deep: true }
 );
 
+// コンポーネントのライフサイクル
 onMounted(() => {
   initGraph();
+  window.addEventListener("resize", initGraph);
 });
 
 onUnmounted(() => {
   if (simulation) {
     simulation.stop();
   }
+  window.removeEventListener("resize", initGraph);
 });
 </script>
 
@@ -260,10 +316,10 @@ onUnmounted(() => {
 }
 
 .nodes rect {
-  cursor: pointer;
+  cursor: default;
 }
 
-.nodes rect:active {
-  cursor: grabbing;
+.nodes rect:hover {
+  filter: brightness(0.95);
 }
 </style>

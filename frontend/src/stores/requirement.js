@@ -28,8 +28,24 @@ export const useRequirementStore = defineStore("requirement", {
           }
         );
 
+        console.log("API Response:", response.data); // デバッグ用
+
+        // レスポンスデータの検証
+        if (
+          !response.data ||
+          !Array.isArray(response.data.nodes) ||
+          !Array.isArray(response.data.links)
+        ) {
+          throw new Error("Invalid response format from API");
+        }
+
         this.nodes = response.data.nodes;
         this.links = response.data.links;
+
+        console.log("Updated store state:", {
+          nodes: this.nodes,
+          links: this.links,
+        }); // デバッグ用
       } catch (error) {
         console.error("Error details:", error.response || error);
         this.error =
