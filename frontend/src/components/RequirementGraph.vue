@@ -115,6 +115,16 @@ const shortenText = (text, maxLength = 40) => {
   return text.substring(0, maxLength - 3) + "...";
 };
 
+// ノードの表示順序を制御する関数（前提ノードを最初に表示）
+const getNodeDelay = (d, index, implicitNodesCount, constraintNodesCount) => {
+  // 前提ノードは早めに表示
+  if (d.type === "implicit") return index * 100;
+  // 制約ノードは次に表示
+  if (d.type === "constraint") return implicitNodesCount * 100 + index * 200;
+  // 要件ノードは最後に表示
+  return (implicitNodesCount + constraintNodesCount) * 150 + index * 200;
+};
+
 const initGraph = () => {
   if (!container.value || !nodes.value || nodes.value.length === 0) return;
 
@@ -135,6 +145,17 @@ const initGraph = () => {
   // ツールチップの作成
   createTooltip();
 
+  // 前提ノードとその他のノードを分類
+  const implicitNodes = normalNodes.filter((node) => node.type === "implicit");
+  const constraintNodes = normalNodes.filter(
+    (node) => node.type === "constraint"
+  );
+  const requirementNodes = normalNodes.filter(
+    (node) => node.type === "requirement"
+  );
+  const implicitNodesCount = implicitNodes.length;
+  const constraintNodesCount = constraintNodes.length;
+
   // SVGを作成
   svg = d3
     .select(container.value)
@@ -149,7 +170,7 @@ const initGraph = () => {
     .append("marker")
     .attr("id", "arrowhead")
     .attr("viewBox", "0 -5 10 10")
-    .attr("refX", 10) // 先端位置の調整
+    .attr("refX", 15) // 先端位置を少し調整
     .attr("refY", 0)
     .attr("markerWidth", 8)
     .attr("markerHeight", 8)
@@ -171,10 +192,6 @@ const initGraph = () => {
 
   svg
     .call(zoom)
-    .call(
-      zoom.transform,
-      d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8)
-    )
     // ダブルクリックによるズームを無効化
     .on("dblclick.zoom", null);
 
@@ -184,18 +201,115 @@ const initGraph = () => {
     .scale(0.8);
   svg.call(zoom.transform, initialTransform);
 
-  // アニメーション開始を示す視覚的効果
+  // 前処理: ノードの初期配置を整理
+  const centerX = width / 2;
+  const centerY = height / 2;
+
+  // まず前提ノード（implicitNodes）を中央付近に配置
+  if (implicitNodes.length > 0) {
+    // 前提ノードが複数ある場合は中央付近に円形に配置
+    if (implicitNodes.length > 1) {
+      const implicitRadius = 80; // 前提ノードの配置半径（小さめに）
+      implicitNodes.forEach((node, i) => {
+        const angle = (i / implicitNodes.length) * 2 * Math.PI;
+        node.x = centerX + implicitRadius * Math.cos(angle);
+        node.y = centerY + implicitRadius * Math.sin(angle);
+      });
+    } else {
+      // 1つしかない場合は完全に中央に
+      implicitNodes[0].x = centerX;
+      implicitNodes[0].y = centerY;
+    }
+  }
+
+  // 制約ノードは前提ノードの周りの中間距離に配置
+  const constraintRadius = 150; // 制約ノードの配置半径（中間）
+  constraintNodes.forEach((node, i) => {
+    const angle = (i / Math.max(constraintNodes.length, 1)) * 2 * Math.PI;
+    node.x = centerX + constraintRadius * Math.cos(angle);
+    node.y = centerY + constraintRadius * Math.sin(angle);
+  });
+
+  // 要件ノードは最も外側に配置
+  const requirementRadius = 220; // 要件ノードの配置半径（大きめ）
+  requirementNodes.forEach((node, i) => {
+    const angle = (i / Math.max(requirementNodes.length, 1)) * 2 * Math.PI;
+    node.x = centerX + requirementRadius * Math.cos(angle);
+    node.y = centerY + requirementRadius * Math.sin(angle);
+  });
+
+  // アニメーション開始のエフェクト
+  // 最初のエフェクトで全体的な波紋を発生（常に中央から）
   svg
     .append("circle")
-    .attr("cx", width / 2)
-    .attr("cy", height / 2)
+    .attr("cx", centerX)
+    .attr("cy", centerY)
     .attr("r", 5)
-    .attr("fill", "#4caf50")
+    .attr("fill", "#9e9e9e")
+    .style("opacity", 0.7)
     .transition()
-    .duration(1000)
-    .attr("r", 200)
+    .duration(1200)
+    .attr("r", 250)
     .style("opacity", 0)
     .remove();
+
+  // 前提ノードから順番に小さな波紋を発生（ノードタイプごとに色を変える）
+  setTimeout(() => {
+    // 前提ノード（緑）
+    implicitNodes.forEach((node, i) => {
+      setTimeout(() => {
+        svg
+          .append("circle")
+          .attr("cx", node.x)
+          .attr("cy", node.y)
+          .attr("r", 3)
+          .attr("fill", "#4caf50")
+          .transition()
+          .duration(800)
+          .attr("r", 70)
+          .style("opacity", 0)
+          .remove();
+      }, i * 100);
+    });
+
+    // 制約ノード（紫）
+    setTimeout(() => {
+      constraintNodes.forEach((node, i) => {
+        setTimeout(() => {
+          svg
+            .append("circle")
+            .attr("cx", node.x)
+            .attr("cy", node.y)
+            .attr("r", 3)
+            .attr("fill", "#9c27b0")
+            .transition()
+            .duration(800)
+            .attr("r", 70)
+            .style("opacity", 0)
+            .remove();
+        }, i * 100);
+      });
+    }, implicitNodes.length * 100 + 200);
+
+    // 要件ノード（青）
+    setTimeout(() => {
+      requirementNodes.forEach((node, i) => {
+        setTimeout(() => {
+          svg
+            .append("circle")
+            .attr("cx", node.x)
+            .attr("cy", node.y)
+            .attr("r", 3)
+            .attr("fill", "#2196f3")
+            .transition()
+            .duration(800)
+            .attr("r", 70)
+            .style("opacity", 0)
+            .remove();
+        }, i * 100);
+      });
+    }, (implicitNodes.length + constraintNodes.length) * 100 + 400);
+  }, 300);
 
   // シミュレーションの初期設定
   simulation = d3
@@ -216,6 +330,15 @@ const initGraph = () => {
     .force("y", d3.forceY(height / 2).strength(0.1))
     .alphaDecay(0.02); // アニメーションをやや長く続かせる (デフォルトは0.0228)
 
+  // シミュレーションの初期状態設定
+  // 前提ノードは少し固定して安定させる
+  simulation.force(
+    "fixImplicit",
+    d3.forceRadial(0, width / 2, height / 2).strength((d) => {
+      return d.type === "implicit" ? 0.5 : 0.01; // 前提ノードは中心に引っ張る力を強くする
+    })
+  );
+
   // リンクの描画（アニメーション付き）
   const link = g
     .append("g")
@@ -224,13 +347,6 @@ const initGraph = () => {
     .data(normalLinks)
     .join("g")
     .style("opacity", 0); // 最初は非表示
-
-  // リンクをアニメーションで徐々に表示
-  link
-    .transition()
-    .duration(1000)
-    .delay((d, i) => 500 + i * 50) // ノードの後に少し遅れて表示
-    .style("opacity", 1);
 
   link
     .append("line")
@@ -255,27 +371,34 @@ const initGraph = () => {
     .data(normalNodes)
     .join("g")
     .style("opacity", 0) // 最初は非表示
-    .attr("transform", () => `translate(${width / 2},${height / 2})`); // 中央から始める
-
-  // ノードをアニメーションで徐々に表示
-  node
-    .transition()
-    .duration(1000)
-    .delay((_, i) => i * 100) // ノードごとに順番に表示
-    .style("opacity", 1)
-    .attr("transform", (d) => `translate(${d.x},${d.y})`);
+    .attr(
+      "transform",
+      (d) => `translate(${d.x || width / 2},${d.y || height / 2})`
+    ); // 初期位置から始める
 
   // ノードの円形
   node
     .append("circle")
-    .attr("r", 60) // 円の半径をさらに大きくする
+    .attr("r", 0) // 最初は半径0から始める
     .attr("fill", (d) => getNodeColor(d.type).fill)
     .style("cursor", "pointer")
     .on("mouseover", function (event, d) {
-      // イベントを明示的に渡す
       showTooltip(event, d);
+      // マウスオーバー時に円を少し大きくする
+      d3.select(this).transition().duration(300).attr("r", 65);
     })
-    .on("mouseout", hideTooltip);
+    .on("mouseout", function () {
+      hideTooltip();
+      // マウスアウト時に元のサイズに戻す
+      d3.select(this).transition().duration(300).attr("r", 60);
+    })
+    // アニメーションで円を拡大
+    .transition()
+    .duration(800)
+    .delay((d, i) =>
+      getNodeDelay(d, i, implicitNodesCount, constraintNodesCount)
+    )
+    .attr("r", 60);
 
   // ノードタイプを日本語で表示
   node
@@ -285,7 +408,16 @@ const initGraph = () => {
     .attr("fill", (d) => getNodeColor(d.type).text)
     .style("font-weight", "bold")
     .style("font-size", "14px")
-    .text((d) => getNodeColor(d.type).label);
+    .style("opacity", 0) // 最初は非表示
+    .text((d) => getNodeColor(d.type).label)
+    // アニメーションでテキストを表示
+    .transition()
+    .duration(500)
+    .delay(
+      (d, i) =>
+        getNodeDelay(d, i, implicitNodesCount, constraintNodesCount) + 300
+    ) // 円の後に表示
+    .style("opacity", 1);
 
   // ノードの簡易テキスト
   node
@@ -294,6 +426,7 @@ const initGraph = () => {
     .attr("text-anchor", "middle")
     .attr("fill", (d) => getNodeColor(d.type).text)
     .style("font-size", "14px")
+    .style("opacity", 0) // 最初は非表示
     .each(function (d) {
       const text = d3.select(this);
       const words = shortenText(d.text, 35).split(/\s+/);
@@ -338,7 +471,55 @@ const initGraph = () => {
             .text(line);
         }
       });
-    });
+    })
+    // アニメーションでテキストを表示
+    .transition()
+    .duration(500)
+    .delay(
+      (d, i) =>
+        getNodeDelay(d, i, implicitNodesCount, constraintNodesCount) + 500
+    ) // タイプラベルの後に表示
+    .style("opacity", 1);
+
+  // ノードをアニメーションで徐々に表示
+  node
+    .transition()
+    .duration(1000)
+    .delay((d, i) =>
+      getNodeDelay(d, i, implicitNodesCount, constraintNodesCount)
+    ) // ノードタイプに基づいた表示順序
+    .style("opacity", 1);
+
+  // リンクをアニメーションで徐々に表示（関連性に基づいて順序付け）
+  link
+    .transition()
+    .duration(1000)
+    .delay((d) => {
+      const sourceDelay = getNodeDelay(
+        d.source,
+        0,
+        implicitNodesCount,
+        constraintNodesCount
+      );
+      const targetDelay = getNodeDelay(
+        d.target,
+        0,
+        implicitNodesCount,
+        constraintNodesCount
+      );
+
+      // 前提ノードからのリンクを最初に表示
+      if (d.source.type === "implicit") {
+        return Math.max(sourceDelay, targetDelay) + 300;
+      }
+      // 制約ノードからのリンクを次に表示
+      if (d.source.type === "constraint") {
+        return Math.max(sourceDelay, targetDelay) + 400;
+      }
+      // その他のリンク
+      return Math.max(sourceDelay, targetDelay) + 500;
+    })
+    .style("opacity", 1);
 
   // シミュレーションの更新処理
   simulation.on("tick", () => {
@@ -390,8 +571,8 @@ const initGraph = () => {
         // 線の角度を計算
         const angle = Math.atan2(targetY - sourceY, targetX - sourceX);
 
-        // 円の半径
-        const radius = 60;
+        // 円の半径と矢印マーカーの長さを考慮
+        const radius = 65; // マーカーのために少し大きめに
 
         // 円の縁の座標を計算
         return targetX - radius * Math.cos(angle);
@@ -407,8 +588,8 @@ const initGraph = () => {
         // 線の角度を計算
         const angle = Math.atan2(targetY - sourceY, targetX - sourceX);
 
-        // 円の半径
-        const radius = 60;
+        // 円の半径と矢印マーカーの長さを考慮
+        const radius = 65; // マーカーのために少し大きめに
 
         // 円の縁の座標を計算
         return targetY - radius * Math.sin(angle);
@@ -425,12 +606,19 @@ const initGraph = () => {
         return (d.source.y + d.target.y) / 2;
       });
 
-    // ノードのアニメーション後に位置を更新
+    // ノードの位置を更新
     node.attr("transform", (d) => {
       if (!d.x || !d.y) return `translate(0,0)`;
       return `translate(${d.x},${d.y})`;
     });
   });
+
+  // 一定時間後にシミュレーションを徐々に落ち着かせる
+  setTimeout(() => {
+    simulation.alphaTarget(0).alphaDecay(0.05);
+    // しばらくしたら前提ノードの固定も弱める
+    simulation.force("fixImplicit").strength(0.01);
+  }, 3000 + normalNodes.length * 200); // ノード数に応じて調整
 };
 
 // ノードとリンクの変更を監視
@@ -492,6 +680,4 @@ onUnmounted(() => {
 .nodes circle:hover {
   filter: brightness(1.2);
 }
-
-/* スタイルをCSSからインラインに移動したため削除 */
 </style>
