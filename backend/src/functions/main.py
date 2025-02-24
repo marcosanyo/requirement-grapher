@@ -37,6 +37,7 @@ class RequirementNode(BaseModel):
     id: str
     type: str  # requirement/constraint/implicit
     text: str
+    description: Optional[str] = None  # 詳細説明を追加
 
 class RequirementLink(BaseModel):
     source: str
@@ -54,14 +55,16 @@ def extract_requirements_prompt(text: str) -> str:
     return f"""あなたは要件分析の専門家です。
 以下のテキストから要件(R)、制約(C)、暗黙知/前提(I)を抽出し、それらの関係性を分析してください。
 
+要件は簡潔に端的な表現で表し、詳細は補足情報として含めてください。
+
 下記の形式のJSONのみを出力してください。
 説明文などは一切不要です。
 
 {{
     "nodes": [
-        {{"id": "R1", "type": "requirement", "text": "抽出された要件1"}},
-        {{"id": "C1", "type": "constraint", "text": "抽出された制約1"}},
-        {{"id": "I1", "type": "implicit", "text": "抽出された暗黙知1"}}
+        {{"id": "R1", "type": "requirement", "text": "抽出された要件", "description": "要件の詳細説明"}},
+        {{"id": "C1", "type": "constraint", "text": "抽出された制約", "description": "制約の詳細説明"}},
+        {{"id": "I1", "type": "implicit", "text": "抽出された暗黙知", "description": "暗黙知の詳細説明"}}
     ],
     "links": [
         {{"source": "C1", "target": "R1", "label": "制約"}},

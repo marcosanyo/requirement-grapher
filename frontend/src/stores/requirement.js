@@ -39,7 +39,13 @@ export const useRequirementStore = defineStore("requirement", {
           throw new Error("Invalid response format from API");
         }
 
-        this.nodes = response.data.nodes;
+        // descriptionがない場合はtextを使用する
+        const processedNodes = response.data.nodes.map((node) => ({
+          ...node,
+          description: node.description || node.text,
+        }));
+
+        this.nodes = processedNodes;
         this.links = response.data.links;
 
         console.log("Updated store state:", {
