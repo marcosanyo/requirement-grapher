@@ -1,44 +1,89 @@
-# backend/src/functions/main.py
+# backend/src/main.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from google import genai
 import os
 from dotenv import load_dotenv
-import json
-import logging
-import re
 import yaml
+import logging
+import json
+import re
+from pathlib import Path
 
 # ロギングの設定
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # 環境変数のロード
 load_dotenv()
 
+# パスの設定
+BASE_DIR = Path(__file__).parent.parent.parent.parent  # プロジェクトのルートディレクトリ
+FRONTEND_DIR = BASE_DIR / "frontend" / "dist"
+logger.info(f"Frontend directory: {FRONTEND_DIR}")
+
 # FastAPIアプリケーションの作成
-app = FastAPI()
+app = FastAPI(title="要件・制約分析支援システム", description="テキストから要件と制約を抽出・視覚化するシステム")
 
 # CORSミドルウェアの設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # 本番環境では適切に制限すること
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 静的ファイルのマウント（本番ビルド環境用）
+if FRONTEND_DIR.exists():
+    logger.info(f"Mounting frontend build from {FRONTEND_DIR}")
+    
+    # ディレクトリごとにマウント
+    static_dirs = ["css", "js", "assets", "img", "fonts"]
+    for dir_name in static_dirs:
+        dir_path = FRONTEND_DIR / dir_name
+        if dir_path.exists():
+            app.mount(f"/{dir_name}", StaticFiles(directory=str(dir_path)), name=dir_name)
+            logger.info(f"Mounted static directory: /{dir_name}")
+    
+    # 個別の静的ファイル（ルートにあるもの）を処理するためのエンドポイント
+    @app.get("/favicon.ico")
+    async def get_favicon():
+        favicon_path = FRONTEND_DIR / "favicon.ico"
+        if favicon_path.exists():
+            return FileResponse(str(favicon_path))
+        logger.warning("Favicon not found")
+        raise HTTPException(status_code=404, detail="Favicon not found")
+    
+    # その他のルート静的ファイル（必要に応じて追加）
+    @app.get("/robots.txt")
+    async def get_robots():
+        robots_path = FRONTEND_DIR / "robots.txt"
+        if robots_path.exists():
+            return FileResponse(str(robots_path))
+        raise HTTPException(status_code=404, detail="Robots.txt not found")
+
 # Gemini APIクライアントの初期化
-genai_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+try:
+    genai_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+    logger.info("Gemini API client initialized successfully")
+except Exception as e:
+    logger.error(f"Gemini APIの初期化に失敗: {e}")
+    genai_client = None
 
 # データモデル
 class RequirementNode(BaseModel):
     id: str
     type: str  # requirement/constraint/implicit
     text: str
-    description: Optional[str] = None  # 詳細説明を追加
+    description: Optional[str] = None  # 詳細説明
 
 class RequirementLink(BaseModel):
     source: str
@@ -59,30 +104,7 @@ class RequirementWithYaml(BaseModel):
     yaml: str
     graph: RequirementGraph
 
-def extract_requirements_prompt(text: str) -> str:
-    return f"""あなたは要件分析の専門家です。
-以下のテキストから要件(R)、制約(C)、暗黙知/前提(I)を抽出し、それらの関係性を分析してください。
-
-要件は簡潔に端的な表現で表し、詳細は補足情報として含めてください。
-
-下記の形式のJSONのみを出力してください。
-説明文などは一切不要です。
-
-{{
-    "nodes": [
-        {{"id": "R1", "type": "requirement", "text": "抽出された要件", "description": "要件の詳細説明"}},
-        {{"id": "C1", "type": "constraint", "text": "抽出された制約", "description": "制約の詳細説明"}},
-        {{"id": "I1", "type": "implicit", "text": "抽出された暗黙知", "description": "暗黙知の詳細説明"}}
-    ],
-    "links": [
-        {{"source": "C1", "target": "R1", "label": "制約"}},
-        {{"source": "I1", "target": "R1", "label": "知見"}}
-    ]
-}}
-
-入力テキスト:
-{text}"""
-
+# プロンプト関数
 def extract_yaml_prompt(text: str) -> str:
     return f"""あなたは要件分析の専門家です。
 以下のテキストから要件(R)、制約(C)、暗黙知/前提(I)を抽出し、それらの関係性を分析してください。
@@ -99,37 +121,40 @@ requirements:
         relation: "depends_on"
       - id: "C2"
         relation: "constrained_by"
-  - id: "R2"
-    text: "データ分析機能を提供する"
-    description: "ユーザーがデータを分析できるダッシュボードを実装する"
-    
+
 constraints:
   - id: "C1"
     text: "レスポンス時間は1秒以内"
     description: "システムは全ての操作に対して1秒以内に応答する必要がある"
-    related_to:
-      - id: "R1"
-        relation: "constrains"
-  - id: "C2"
-    text: "セキュリティ基準への準拠"
-    description: "システムは最新のセキュリティ基準に準拠する必要がある"
     
 implicit_knowledge:
   - id: "I1"
     text: "ユーザーは技術に精通していない"
     description: "エンドユーザーは技術的な知識が限られているため、直感的なインターフェースが必要"
-    related_to:
-      - id: "R1"
-        relation: "influences"
 ```
-
-YAMLの構造に従い、各要素が関連する他の要素をrelated_toリストで明示してください。
-基本的にはどのノードも何かしらの関係性を持つ必要があります。
-少なくとも暗黙知/前提(I)との関係性は示せるはずです。
-relationには「constrains（制約する）」「depends_on（依存する）」「influences（影響を与える）」「relates_to（関連する）」などの関係性を使用してください。
 
 入力テキスト:
 {text}"""
+
+# ユーティリティ関数
+def extract_yaml_from_text(text: str) -> str:
+    try:
+        # YAMLブロックを探す (```yaml と ``` の間)
+        yaml_pattern = re.compile(r'```yaml\s*([\s\S]*?)\s*```', re.DOTALL)
+        match = yaml_pattern.search(text)
+        
+        if match:
+            return match.group(1).strip()
+        
+        # バックティックなしのケースも考慮
+        yaml_start = text.find('requirements:')
+        if yaml_start != -1:
+            return text[yaml_start:].strip()
+            
+        raise ValueError("YAML not found in response")
+    except Exception as e:
+        logger.error(f"YAML extraction failed: {text}")
+        raise ValueError(f"Failed to extract YAML: {str(e)}")
 
 def yaml_to_graph(yaml_text: str) -> dict:
     """YAMLテキストをグラフ構造に変換する"""
@@ -203,70 +228,7 @@ def yaml_to_graph(yaml_text: str) -> dict:
         logger.error(f"YAML変換エラー: {str(e)}")
         raise ValueError(f"YAMLからグラフへの変換に失敗しました: {str(e)}")
 
-def extract_json_from_text(text: str) -> dict:
-    try:
-        # 最初の{から最後の}までを抽出
-        json_pattern = re.compile(r'\{.*\}', re.DOTALL)
-        match = json_pattern.search(text)
-        if not match:
-            raise ValueError("JSON not found in response")
-        
-        json_str = match.group()
-        # JSONパース
-        data = json.loads(json_str)
-        return data
-    except Exception as e:
-        logger.error(f"JSON extraction failed: {text}")
-        raise ValueError(f"Failed to extract JSON: {str(e)}")
-
-def extract_yaml_from_text(text: str) -> str:
-    try:
-        # YAMLブロックを探す (```yaml と ``` の間)
-        yaml_pattern = re.compile(r'```yaml\s*([\s\S]*?)\s*```', re.DOTALL)
-        match = yaml_pattern.search(text)
-        
-        if match:
-            return match.group(1).strip()
-        
-        # バックティックなしのケースも考慮
-        yaml_start = text.find('requirements:')
-        if yaml_start != -1:
-            return text[yaml_start:].strip()
-            
-        raise ValueError("YAML not found in response")
-    except Exception as e:
-        logger.error(f"YAML extraction failed: {text}")
-        raise ValueError(f"Failed to extract YAML: {str(e)}")
-
-@app.post("/api/requirements/extract", response_model=RequirementGraph)
-async def extract_requirements(input: RequirementInput):
-    try:
-        # Gemini APIを使用して要件を抽出
-        response = genai_client.models.generate_content(
-            model="gemini-2.0-flash-001",
-            contents=extract_requirements_prompt(input.text)
-        )
-        
-        if not response or not response.text:
-            raise HTTPException(status_code=500, detail="Failed to generate response")
-
-        logger.info(f"Raw response: {response.text}")
-        
-        # レスポンスからJSONを抽出してパース
-        result = extract_json_from_text(response.text)
-        
-        # 結果の検証
-        if not isinstance(result, dict) or 'nodes' not in result or 'links' not in result:
-            raise ValueError("Invalid response format")
-        
-        return RequirementGraph(**result)
-        
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail="要件の抽出に失敗しました")
-
+# APIエンドポイント
 @app.post("/api/requirements/extract_yaml", response_model=YamlOutput)
 async def extract_requirements_yaml(input: RequirementInput):
     """テキスト入力からYAML形式で要件を構造化して出力するエンドポイント"""
@@ -326,6 +288,28 @@ async def extract_with_yaml(input: RequirementInput):
         logger.error(f"Integrated extraction error: {str(e)}")
         raise HTTPException(status_code=500, detail="要件の統合抽出に失敗しました")
 
+# SPAルートハンドラ - 必ずAPIエンドポイントの後に定義する
+if FRONTEND_DIR.exists():
+    @app.get("/", include_in_schema=False)
+    async def serve_spa_root():
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
+    
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        # APIエンドポイントは除外
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        
+        # 静的ファイルが存在する場合はそれを提供
+        file_path = FRONTEND_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        
+        # それ以外の場合はindex.htmlを提供
+        logger.debug(f"Serving index.html for SPA route: {full_path}")
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+# アプリケーションの起動
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8086)
+    uvicorn.run(app, host="0.0.0.0", port=8080)
