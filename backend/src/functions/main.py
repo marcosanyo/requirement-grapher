@@ -124,6 +124,8 @@ implicit_knowledge:
 ```
 
 YAMLの構造に従い、各要素が関連する他の要素をrelated_toリストで明示してください。
+基本的にはどのノードも何かしらの関係性を持つ必要があります。
+少なくとも暗黙知/前提(I)との関係性は示せるはずです。
 relationには「constrains（制約する）」「depends_on（依存する）」「influences（影響を与える）」「relates_to（関連する）」などの関係性を使用してください。
 
 入力テキスト:

@@ -138,13 +138,13 @@ const resetView = () => {
 const getNodeColor = (type) => {
   switch (type) {
     case "requirement":
-      return { fill: "#2196f3", text: "#ffffff", label: "要件" };
+      return { fill: "#BBDEFB", text: "#000000", label: "要件" }; // 淡い青
     case "constraint":
-      return { fill: "#9c27b0", text: "#ffffff", label: "制約" };
+      return { fill: "#E1BEE7", text: "#000000", label: "制約" }; // 淡い紫
     case "implicit":
-      return { fill: "#4caf50", text: "#ffffff", label: "前提" };
+      return { fill: "#C8E6C9", text: "#000000", label: "前提" }; // 淡い緑
     default:
-      return { fill: "#9e9e9e", text: "#ffffff", label: "その他" };
+      return { fill: "#EEEEEE", text: "#000000", label: "その他" }; // 淡いグレー
   }
 };
 
@@ -441,20 +441,20 @@ const initGraph = () => {
     .delay((d, i) => getNodeDelay(d, i, centerX, centerY) + 300) // 円の後に表示
     .style("opacity", 1);
 
-  // ノードの簡易テキスト
+  // ノードの簡易テキスト（テキスト表示改善）
   node
     .append("text")
     .attr("dy", 0)
     .attr("text-anchor", "middle")
     .attr("fill", (d) => getNodeColor(d.type).text)
-    .style("font-size", "14px")
+    .style("font-size", "12px") // フォントサイズを小さく
     .style("opacity", 0) // 最初は非表示
     .each(function (d) {
       const text = d3.select(this);
-      const words = shortenText(d.text, 35).split(/\s+/);
+      const words = shortenText(d.text, 30).split(/\s+/); // 文字数制限を少し短く
       let line = "";
       let lineNumber = 0;
-      const lineHeight = 1.3;
+      const lineHeight = 1.2; // 行間を少し狭く
 
       words.forEach((word, i) => {
         const testLine = line + word + " ";
@@ -463,7 +463,8 @@ const initGraph = () => {
           line = testLine;
         } else {
           // それ以降は長さをチェック
-          if (testLine.length > 25) {
+          if (testLine.length > 20) {
+            // 1行あたりの文字数制限を短く
             // 行が長すぎる場合は新しい行に
             text
               .append("tspan")
