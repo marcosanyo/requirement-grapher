@@ -1,26 +1,34 @@
 <!-- frontend/src/components/RequirementGraph.vue -->
 <template>
-  <v-card height="600">
+  <v-card>
     <v-card-title class="d-flex justify-space-between align-center">
       要件・制約関係グラフ
       <v-btn color="primary" icon @click="resetView">
         <v-icon>mdi-restore</v-icon>
       </v-btn>
     </v-card-title>
-    <v-card-text class="fill-height">
-      <div ref="container" class="graph-container fill-height"></div>
+    <v-card-text style="height: 600px; overflow-y: auto; overflow-x: hidden">
+      <div ref="container" class="graph-container" style="height: 580px"></div>
     </v-card-text>
   </v-card>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from "vue";
+import { ref, onMounted, onUnmounted, watch, toRefs, defineProps } from "vue";
 import * as d3 from "d3";
 import { useRequirementStore } from "@/stores/requirement";
-import { storeToRefs } from "pinia";
 
-const store = useRequirementStore();
-const { nodes, links } = storeToRefs(store);
+// Props定義を追加
+const props = defineProps({
+  store: {
+    type: Object,
+    default: () => useRequirementStore(),
+  },
+});
+
+// プロップからストアを取得（reactive性を保持するためtoRefs使用）
+const { nodes, links } = toRefs(props.store);
+
 const container = ref(null);
 let simulation = null;
 let svg = null;
@@ -190,14 +198,16 @@ const shortenText = (text, maxLength = 40) => {
   return text.substring(0, maxLength - 3) + "...";
 };
 
-// ノードの表示順序を制御する関数（前提ノードを最初に表示）
-const getNodeDelay = (d, index, implicitNodesCount, constraintNodesCount) => {
-  // 前提ノードは早めに表示
-  if (d.type === "implicit") return index * 100;
-  // 制約ノードは次に表示
-  if (d.type === "constraint") return implicitNodesCount * 100 + index * 200;
-  // 要件ノードは最後に表示
-  return (implicitNodesCount + constraintNodesCount) * 150 + index * 200;
+// ノードの表示順序を制御する関数（中心からの距離に基づいて順次表示）
+const getNodeDelay = (d, index, centerX, centerY) => {
+  // ノードの中心からの距離を計算
+  const distance = Math.sqrt(
+    Math.pow(d.x - centerX, 2) + Math.pow(d.y - centerY, 2)
+  );
+
+  // 距離に基づいて遅延を計算（近いものから順に表示）
+  // 最小遅延は100ms、最大は2000ms
+  return Math.min(2000, 100 + distance * 1.5);
 };
 
 const initGraph = () => {
@@ -228,8 +238,6 @@ const initGraph = () => {
   const requirementNodes = normalNodes.filter(
     (node) => node.type === "requirement"
   );
-  const implicitNodesCount = implicitNodes.length;
-  const constraintNodesCount = constraintNodes.length;
 
   // SVGを作成
   svg = d3
@@ -358,12 +366,10 @@ const initGraph = () => {
     })
   );
 
-  // レイヤーの順序を制御するためにコンテナを分割
-  const linksGroup = g.append("g").attr("class", "links");
-  const nodesGroup = g.append("g").attr("class", "nodes");
-
   // リンクの描画（アニメーション付き）
-  const link = linksGroup
+  const link = g
+    .append("g")
+    .attr("class", "links")
     .selectAll("g")
     .data(normalLinks)
     .join("g")
@@ -385,7 +391,9 @@ const initGraph = () => {
     .text((d) => d.label);
 
   // ノードの描画（アニメーション付き）
-  const node = nodesGroup
+  const node = g
+    .append("g")
+    .attr("class", "nodes")
     .selectAll("g")
     .data(normalNodes)
     .join("g")
@@ -405,38 +413,16 @@ const initGraph = () => {
       showTooltip(event, d);
       // マウスオーバー時に円を少し大きくする
       d3.select(this).transition().duration(300).attr("r", 65);
-
-      // 関連するリンクを強調表示
-      linksGroup
-        .selectAll("line")
-        .filter((link) => link.source.id === d.id || link.target.id === d.id)
-        .transition()
-        .duration(300)
-        .attr("stroke", "#ff9800")
-        .attr("stroke-width", 3)
-        .attr("stroke-opacity", 1)
-        .attr("z-index", 1000);
     })
     .on("mouseout", function () {
       hideTooltip();
       // マウスアウト時に元のサイズに戻す
       d3.select(this).transition().duration(300).attr("r", 60);
-
-      // リンクの強調表示を解除
-      linksGroup
-        .selectAll("line")
-        .transition()
-        .duration(300)
-        .attr("stroke", "#999")
-        .attr("stroke-width", 2)
-        .attr("stroke-opacity", 0.6);
     })
-    // アニメーションで円を拡大
+    // アニメーションで円を拡大（中心からの距離に基づいて順次表示）
     .transition()
     .duration(800)
-    .delay((d, i) =>
-      getNodeDelay(d, i, implicitNodesCount, constraintNodesCount)
-    )
+    .delay((d, i) => getNodeDelay(d, i, centerX, centerY))
     .attr("r", 60);
 
   // ノードタイプを日本語で表示
@@ -449,13 +435,10 @@ const initGraph = () => {
     .style("font-size", "14px")
     .style("opacity", 0) // 最初は非表示
     .text((d) => getNodeColor(d.type).label)
-    // アニメーションでテキストを表示
+    // アニメーションでテキストを表示（対応するノードと同時に）
     .transition()
     .duration(500)
-    .delay(
-      (d, i) =>
-        getNodeDelay(d, i, implicitNodesCount, constraintNodesCount) + 300
-    ) // 円の後に表示
+    .delay((d, i) => getNodeDelay(d, i, centerX, centerY) + 300) // 円の後に表示
     .style("opacity", 1);
 
   // ノードの簡易テキスト
@@ -514,50 +497,26 @@ const initGraph = () => {
     // アニメーションでテキストを表示
     .transition()
     .duration(500)
-    .delay(
-      (d, i) =>
-        getNodeDelay(d, i, implicitNodesCount, constraintNodesCount) + 500
-    ) // タイプラベルの後に表示
+    .delay((d, i) => getNodeDelay(d, i, centerX, centerY) + 500) // タイプラベルの後に表示
     .style("opacity", 1);
 
-  // ノードをアニメーションで徐々に表示
+  // ノードをアニメーションで徐々に表示（中心からの距離に基づいた表示順序）
   node
     .transition()
     .duration(1000)
-    .delay((d, i) =>
-      getNodeDelay(d, i, implicitNodesCount, constraintNodesCount)
-    ) // ノードタイプに基づいた表示順序
+    .delay((d, i) => getNodeDelay(d, i, centerX, centerY))
     .style("opacity", 1);
 
-  // リンクをアニメーションで徐々に表示（関連性に基づいて順序付け）
+  // すべてのノードが表示された後にリンクを表示
+  const maxNodeDelay = Math.max(
+    ...normalNodes.map((d, i) => getNodeDelay(d, i, centerX, centerY))
+  );
+
+  // リンクをすべてまとめて表示（ノード表示完了後）
   link
     .transition()
     .duration(1000)
-    .delay((d) => {
-      const sourceDelay = getNodeDelay(
-        d.source,
-        0,
-        implicitNodesCount,
-        constraintNodesCount
-      );
-      const targetDelay = getNodeDelay(
-        d.target,
-        0,
-        implicitNodesCount,
-        constraintNodesCount
-      );
-
-      // 前提ノードからのリンクを最初に表示
-      if (d.source.type === "implicit") {
-        return Math.max(sourceDelay, targetDelay) + 300;
-      }
-      // 制約ノードからのリンクを次に表示
-      if (d.source.type === "constraint") {
-        return Math.max(sourceDelay, targetDelay) + 400;
-      }
-      // その他のリンク
-      return Math.max(sourceDelay, targetDelay) + 500;
-    })
+    .delay(() => maxNodeDelay + 500) // ノードが表示された後500ms待ってからリンクを表示
     .style("opacity", 1);
 
   // シミュレーションの更新処理
@@ -719,8 +678,6 @@ onUnmounted(() => {
 
 .links line {
   stroke-opacity: 0.6;
-  pointer-events: stroke;
-  z-index: 1;
 }
 
 .nodes circle {
