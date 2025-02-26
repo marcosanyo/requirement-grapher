@@ -113,7 +113,7 @@ def extract_yaml_prompt(text: str) -> str:
 ```yaml
 requirements:
   - id: "R1"
-    text: "ユーザー認証機能を実装する"
+    text: "ユーザー認証機能"
     description: "ユーザーがシステムにログインできるようにする"
     related_to:
       - id: "I1"
@@ -123,12 +123,12 @@ requirements:
 
 constraints:
   - id: "C1"
-    text: "レスポンス時間は1秒以内"
+    text: "レスポンス時間"
     description: "システムは全ての操作に対して1秒以内に応答する必要がある"
     
 implicit_knowledge:
   - id: "I1"
-    text: "ユーザーは技術に精通していない"
+    text: "ユーザーの技術知識"
     description: "エンドユーザーは技術的な知識が限られているため、直感的なインターフェースが必要"
 ```
 
