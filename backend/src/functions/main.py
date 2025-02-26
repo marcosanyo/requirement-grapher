@@ -26,7 +26,8 @@ load_dotenv()
 
 # パスの設定
 BASE_DIR = Path(__file__).parent.parent.parent.parent  # プロジェクトのルートディレクトリ
-FRONTEND_DIR = BASE_DIR / "frontend" / "dist"
+FRONTEND_PATH = os.getenv("FRONTEND_PATH", "/workspace/frontend/dist")
+FRONTEND_DIR = Path(FRONTEND_PATH)
 logger.info(f"Frontend directory: {FRONTEND_DIR}")
 
 # FastAPIアプリケーションの作成
@@ -230,60 +231,70 @@ def yaml_to_graph(yaml_text: str) -> dict:
 @app.post("/api/requirements/extract_yaml", response_model=YamlOutput)
 async def extract_requirements_yaml(input: RequirementInput):
     """テキスト入力からYAML形式で要件を構造化して出力するエンドポイント"""
+    logger.info("Entering /api/requirements/extract_yaml")
     try:
         # Gemini APIを使用してYAML形式で要件を抽出
+        logger.info("Calling Gemini API")
         response = genai_client.models.generate_content(
-            model="gemini-2.0-flash-001",  
+            model="gemini-2.0-flash-001",
             contents=extract_yaml_prompt(input.text)
         )
-        
+
         if not response or not response.text:
             raise HTTPException(status_code=500, detail="Failed to generate YAML response")
 
         logger.info(f"Raw YAML response: {response.text}")
-        
+
         # レスポンスからYAMLを抽出
         yaml_text = extract_yaml_from_text(response.text)
-        
+
+        logger.info("Exiting /api/requirements/extract_yaml")
         return YamlOutput(yaml=yaml_text)
-        
+
     except ValueError as e:
+        logger.error(f"ValueError in /api/requirements/extract_yaml: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error(f"YAML extraction error: {str(e)}")
+        logger.error(f"Exception in /api/requirements/extract_yaml: {str(e)}")
         raise HTTPException(status_code=500, detail="YAML形式での要件抽出に失敗しました")
 
 @app.post("/api/requirements/yaml_to_graph", response_model=RequirementGraph)
 async def convert_yaml_to_graph(yaml_input: YamlOutput):
     """YAML形式の入力からグラフ構造に変換するエンドポイント"""
+    logger.info("Entering /api/requirements/yaml_to_graph")
     try:
         graph_data = yaml_to_graph(yaml_input.yaml)
+        logger.info("Exiting /api/requirements/yaml_to_graph")
         return RequirementGraph(**graph_data)
     except ValueError as e:
+        logger.error(f"ValueError in /api/requirements/yaml_to_graph: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error(f"YAML to graph conversion error: {str(e)}")
+        logger.error(f"Exception in /api/requirements/yaml_to_graph: {str(e)}")
         raise HTTPException(status_code=500, detail="YAMLからグラフへの変換に失敗しました")
 
 @app.post("/api/requirements/extract_with_yaml", response_model=RequirementWithYaml)
 async def extract_with_yaml(input: RequirementInput):
     """テキストからYAML中間形式を経由してグラフを生成する統合エンドポイント"""
+    logger.info("Entering /api/requirements/extract_with_yaml")
     try:
         # まずYAML形式で抽出
         yaml_response = await extract_requirements_yaml(input)
         yaml_text = yaml_response.yaml
-        
+
         # YAMLからグラフに変換
         graph_data = yaml_to_graph(yaml_text)
         graph = RequirementGraph(**graph_data)
-        
+
         # 両方の結果を返す
+        logger.info("Exiting /api/requirements/extract_with_yaml")
         return RequirementWithYaml(yaml=yaml_text, graph=graph)
-        
+
     except HTTPException as e:
+        logger.error(f"HTTPException in /api/requirements/extract_with_yaml: {str(e)}")
         raise e
     except Exception as e:
-        logger.error(f"Integrated extraction error: {str(e)}")
+        logger.error(f"Exception in /api/requirements/extract_with_yaml: {str(e)}")
         raise HTTPException(status_code=500, detail="要件の統合抽出に失敗しました")
 
 # SPAルートハンドラ - 必ずAPIエンドポイントの後に定義する
