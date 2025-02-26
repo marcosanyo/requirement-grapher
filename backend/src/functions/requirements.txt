@@ -11,3 +11,4 @@ streamlit
 streamlit_autorefresh
 numpy
 uvicorn
+pyyaml

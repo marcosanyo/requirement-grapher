@@ -41,34 +41,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 静的ファイルのマウント（本番ビルド環境用）
-if FRONTEND_DIR.exists():
-    logger.info(f"Mounting frontend build from {FRONTEND_DIR}")
-    
-    # ディレクトリごとにマウント
-    static_dirs = ["css", "js", "assets", "img", "fonts"]
-    for dir_name in static_dirs:
-        dir_path = FRONTEND_DIR / dir_name
-        if dir_path.exists():
-            app.mount(f"/{dir_name}", StaticFiles(directory=str(dir_path)), name=dir_name)
-            logger.info(f"Mounted static directory: /{dir_name}")
-    
-    # 個別の静的ファイル（ルートにあるもの）を処理するためのエンドポイント
-    @app.get("/favicon.ico")
-    async def get_favicon():
-        favicon_path = FRONTEND_DIR / "favicon.ico"
-        if favicon_path.exists():
-            return FileResponse(str(favicon_path))
-        logger.warning("Favicon not found")
-        raise HTTPException(status_code=404, detail="Favicon not found")
-    
-    # その他のルート静的ファイル（必要に応じて追加）
-    @app.get("/robots.txt")
-    async def get_robots():
-        robots_path = FRONTEND_DIR / "robots.txt"
-        if robots_path.exists():
-            return FileResponse(str(robots_path))
-        raise HTTPException(status_code=404, detail="Robots.txt not found")
+logger.info(f"Mounting frontend build from {FRONTEND_DIR}")
+
+# ディレクトリごとにマウント
+static_dirs = ["css", "js", "assets", "img", "fonts"]
+for dir_name in static_dirs:
+    dir_path = FRONTEND_DIR / dir_name
+    if dir_path.exists():
+        app.mount(f"/{dir_name}", StaticFiles(directory=str(dir_path)), name=dir_name)
+        logger.info(f"Mounted static directory: /{dir_name}")
+
+# 個別の静的ファイル（ルートにあるもの）を処理するためのエンドポイント
+@app.get("/favicon.ico")
+async def get_favicon():
+    favicon_path = FRONTEND_DIR / "favicon.ico"
+    if favicon_path.exists():
+        return FileResponse(str(favicon_path))
+    logger.warning("Favicon not found")
+    raise HTTPException(status_code=404, detail="Favicon not found")
+
+# その他のルート静的ファイル（必要に応じて追加）
+@app.get("/robots.txt")
+async def get_robots():
+    robots_path = FRONTEND_DIR / "robots.txt"
+    if robots_path.exists():
+        return FileResponse(str(robots_path))
+    raise HTTPException(status_code=404, detail="Robots.txt not found")
 
 # Gemini APIクライアントの初期化
 try:
@@ -289,27 +287,26 @@ async def extract_with_yaml(input: RequirementInput):
         raise HTTPException(status_code=500, detail="要件の統合抽出に失敗しました")
 
 # SPAルートハンドラ - 必ずAPIエンドポイントの後に定義する
-if FRONTEND_DIR.exists():
-    @app.get("/", include_in_schema=False)
-    async def serve_spa_root():
-        return FileResponse(str(FRONTEND_DIR / "index.html"))
+@app.get("/", include_in_schema=False)
+async def serve_spa_root():
+    return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str):
+    # APIエンドポイントは除外
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
     
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        # APIエンドポイントは除外
-        if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="Not Found")
-        
-        # 静的ファイルが存在する場合はそれを提供
-        file_path = FRONTEND_DIR / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(str(file_path))
-        
-        # それ以外の場合はindex.htmlを提供
-        logger.debug(f"Serving index.html for SPA route: {full_path}")
-        return FileResponse(str(FRONTEND_DIR / "index.html"))
+    # 静的ファイルが存在する場合はそれを提供
+    file_path = FRONTEND_DIR / full_path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(str(file_path))
+    
+    # それ以外の場合はindex.htmlを提供
+    logger.debug(f"Serving index.html for SPA route: {full_path}")
+    return FileResponse(str(FRONTEND_DIR / "index.html"))
 
 # アプリケーションの起動
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8086)
